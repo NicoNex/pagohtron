@@ -61,6 +61,7 @@ func newBot(chatID int64) echotron.Bot {
 		API:    echotron.NewAPI(token),
 	}
 	b.state = b.handleMessage
+	go b.tick()
 	return b
 }
 
@@ -136,6 +137,9 @@ func (b *bot) handleMessage(update *echotron.Update) stateFn {
 		b.messagef("Prima di cominciare ho bisogno di sapere:\n- il nikname di PayPal del ricevente\n- la somma di denaro da chiedere\n- il giorno in cui devo ricordare a tutti il pagamento")
 		b.messagef("Per prima cosa dimmi il nikname di PayPal del ricevente.\nPuoi mandare /annulla in qualsiasi momento per annullare l'operazione.")
 		return b.setNick
+
+	case strings.HasPrefix(msg, "/test"):
+		b.remind()
 	}
 
 	return b.handleMessage
@@ -143,6 +147,22 @@ func (b *bot) handleMessage(update *echotron.Update) stateFn {
 
 func (b *bot) Update(update *echotron.Update) {
 	b.state = b.state(update)
+}
+
+func (b bot) remind() {
+	b.SendVideoNote(
+		echotron.NewInputFileBytes("pagah.mp4", pagah),
+		b.chatID,
+		nil,
+	)
+}
+
+func (b bot) tick() {
+	for t := range time.Tick(time.Hour) {
+		if t.Day() == b.reminderDay && t.Hour() == 8 {
+			b.messagef("pagah")
+		}
+	}
 }
 
 func main() {
