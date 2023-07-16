@@ -367,7 +367,7 @@ func (b bot) paypal() string {
 	return fmt.Sprintf("https://paypal.me/%s/%.2f", b.PPNick, b.PPAmount)
 }
 
-func isIn(item int64, list []int64) (found bool) {
+func isIn[T comparable](item T, list []T) (found bool) {
 	for _, v := range list {
 		if item == v {
 			found = true
