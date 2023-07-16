@@ -65,10 +65,9 @@ func (b *bot) init() {
 		log.Fatal("b.init", "b.GetChat", err)
 	}
 	chatType := res.Result.Type
-	isGroup := chatType == "group" || chatType == "supergroup"
 
 	// Set the admins' ID.
-	if isGroup {
+	if chatType == "group" || chatType == "supergroup" {
 		res, err := b.GetChatAdministrators(b.chatID)
 		if err != nil {
 			log.Fatal("b.init", "b.GetChatAdministrators", err)
