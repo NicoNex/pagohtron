@@ -26,10 +26,9 @@ var (
 type stateFn func(*echotron.Update) stateFn
 
 type bot struct {
-	chatID  int64
-	state   map[int64]stateFn
-	isGroup bool
-	admins  map[int64]bool
+	chatID int64
+	state  map[int64]stateFn
+	admins map[int64]bool
 	cachable
 	echotron.API
 }
@@ -66,10 +65,10 @@ func (b *bot) init() {
 		log.Fatal("b.init", "b.GetChat", err)
 	}
 	chatType := res.Result.Type
-	b.isGroup = chatType == "group" || chatType == "supergroup"
+	isGroup := chatType == "group" || chatType == "supergroup"
 
 	// Set the admins' ID.
-	if b.isGroup {
+	if isGroup {
 		res, err := b.GetChatAdministrators(b.chatID)
 		if err != nil {
 			log.Fatal("b.init", "b.GetChatAdministrators", err)
