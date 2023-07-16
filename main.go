@@ -244,9 +244,7 @@ func (b *bot) handleCallback(update *echotron.Update) stateFn {
 
 		kbd := b.reminderKbd()
 
-		// Add 1 to exclude the bot from the payers, otherwise
-		// there will always be a missing payer.
-		if len(b.Payers)+1 == b.TotalPayers {
+		if len(b.Payers) == b.TotalPayers {
 			b.ReminderMsg = fmt.Sprintf(
 				"%s\n\nHanno pagato tutti, passo il mese prossimo a chiedere %s!",
 				b.ReminderMsg,
@@ -322,7 +320,9 @@ func (b *bot) remind() {
 	if err != nil {
 		log.Println("remind", "b.GetChatMemberCount", err)
 	}
-	b.TotalPayers = count.Result
+	// Subtract 1 to exclude the bot from the payers, otherwise
+	// there will always be a missing payer.
+	b.TotalPayers = count.Result - 1
 
 	_, err = b.SendVideoNote(
 		echotron.NewInputFileBytes("pagah.mp4", pagah),
