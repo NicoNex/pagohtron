@@ -20,6 +20,7 @@ type cachable struct {
 	PPNick      string
 	PPAmount    float64
 	ReminderDay int
+	TotalPayers int
 }
 
 var (

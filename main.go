@@ -52,6 +52,8 @@ var (
 		"il patrimonio",
 		"gli averi",
 		"le finanze",
+		"il dazio",
+		"il tributo",
 	}
 
 	md2Esc = strings.NewReplacer(
@@ -240,12 +242,26 @@ func (b *bot) handleCallback(update *echotron.Update) stateFn {
 		)
 		b.save()
 
+		kbd := b.reminderKbd()
+
+		// Add 1 to exclude the bot from the payers, otherwise
+		// there will always be a missing payer.
+		if len(b.Payers)+1 == b.TotalPayers {
+			b.ReminderMsg = fmt.Sprintf(
+				"%s\n\nHanno pagato tutti, passo il mese prossimo a chiedere %s!",
+				b.ReminderMsg,
+				random(currency),
+			)
+
+			kbd = echotron.InlineKeyboardMarkup{}
+		}
+
 		b.EditMessageText(
 			md2Esc.Replace(b.ReminderMsg),
 			echotron.NewMessageID(b.chatID, b.ReminderID),
 			&echotron.MessageTextOptions{
 				ParseMode:   echotron.MarkdownV2,
-				ReplyMarkup: b.reminderKbd(),
+				ReplyMarkup: kbd,
 			},
 		)
 	}
@@ -293,7 +309,13 @@ func (b bot) save() {
 func (b *bot) remind() {
 	b.Payers = []int64{}
 
-	_, err := b.SendVideoNote(
+	count, err := b.GetChatMemberCount(b.chatID)
+	if err != nil {
+		log.Println("remind", "b.GetChatMemberCount", err)
+	}
+	b.TotalPayers = count.Result
+
+	_, err = b.SendVideoNote(
 		echotron.NewInputFileBytes("pagah.mp4", pagah),
 		b.chatID,
 		nil,
