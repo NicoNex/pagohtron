@@ -26,8 +26,10 @@ var (
 type stateFn func(*echotron.Update) stateFn
 
 type bot struct {
-	chatID int64
-	state  stateFn
+	chatID  int64
+	state   map[int64]stateFn
+	isGroup bool
+	admins  map[int64]bool
 	cachable
 	echotron.API
 }
@@ -39,25 +41,55 @@ func (b bot) messagef(f string, a ...any) {
 }
 
 func newBot(chatID int64) echotron.Bot {
-	cachable, err := Cachable(chatID)
-	if err != nil {
-		log.Println("newBot", "Cachable", err)
-	}
 	b := &bot{
-		chatID:   chatID,
-		API:      echotron.NewAPI(token),
-		cachable: cachable,
+		chatID: chatID,
+		API:    echotron.NewAPI(token),
+		state:  make(map[int64]stateFn),
+		admins: make(map[int64]bool),
 	}
-	b.state = b.handleMessage
+	b.init()
 	go b.tick()
 	return b
+}
+
+func (b *bot) init() {
+	// Load the cachable object.
+	cachable, err := Cachable(b.chatID)
+	if err != nil {
+		log.Println("b.init", "Cachable", err)
+	}
+	b.cachable = cachable
+
+	// Set isGroup field.
+	res, err := b.GetChat(b.chatID)
+	if err != nil {
+		log.Fatal("b.init", "b.GetChat", err)
+	}
+	chatType := res.Result.Type
+	b.isGroup = chatType == "group" || chatType == "supergroup"
+
+	// Set the admins' ID.
+	if b.isGroup {
+		res, err := b.GetChatAdministrators(b.chatID)
+		if err != nil {
+			log.Fatal("b.init", "b.GetChatAdministrators", err)
+		}
+
+		for _, chatMember := range res.Result {
+			if chatMember.User != nil {
+				b.admins[chatMember.User.ID] = true
+			}
+		}
+	} else {
+		b.admins[b.chatID] = true
+	}
 }
 
 func (b *bot) setDay(update *echotron.Update) stateFn {
 	switch msg := update.Message.Text; {
 	case strings.HasPrefix(msg, "/annulla"):
 		b.messagef("Operazione annullata!")
-		return b.handleMessage
+		return nil
 
 	default:
 		d, err := strconv.ParseInt(msg, 10, 32)
@@ -73,7 +105,7 @@ func (b *bot) setDay(update *echotron.Update) stateFn {
 		b.ReminderDay = int(d)
 		go b.save()
 		b.messagef("Perfetto, ricorderò di pagare la somma di %.2f€ ogni %d del mese!", b.PPAmount, b.ReminderDay)
-		return b.handleMessage
+		return nil
 	}
 }
 
@@ -81,7 +113,7 @@ func (b *bot) setAmount(update *echotron.Update) stateFn {
 	switch msg := update.Message.Text; {
 	case strings.HasPrefix(msg, "/annulla"):
 		b.messagef("Operazione annullata!")
-		return b.handleMessage
+		return nil
 
 	default:
 		a, err := strconv.ParseFloat(msg, 64)
@@ -101,7 +133,7 @@ func (b *bot) setNick(update *echotron.Update) stateFn {
 	switch msg := update.Message.Text; {
 	case strings.HasPrefix(msg, "/annulla"):
 		b.messagef("Operazione annullata!")
-		return b.handleMessage
+		return nil
 
 	default:
 		b.PPNick = msg
@@ -116,11 +148,11 @@ func (b *bot) handleMessage(update *echotron.Update) stateFn {
 	case strings.HasPrefix(msg, "/annulla"):
 		b.messagef("Operazione annullata.")
 
-	case strings.HasPrefix(msg, "/impostazioni") /*&& b.isAdmin(userID(update))*/ :
+	case strings.HasPrefix(msg, "/impostazioni") && b.isAdmin(userID(update)):
 		b.messagef("Per prima cosa dimmi il nickname di PayPal del ricevente.\nPuoi mandare /annulla in qualsiasi momento per annullare l'operazione.")
 		return b.setNick
 
-	case strings.HasPrefix(msg, "/start") /*&& b.isAdmin(userID(update))*/ :
+	case strings.HasPrefix(msg, "/start") && b.isAdmin(userID(update)):
 		b.messagef("Ciao sono Pagohtron, il bot che ricorda i pagamenti mensili di gruppo!")
 		b.messagef("Prima di cominciare ho bisogno di sapere:\n- il nickname di PayPal del ricevente\n- la somma di denaro da chiedere\n- il giorno in cui devo ricordare a tutti il pagamento")
 		b.messagef("Per prima cosa dimmi il nickname di PayPal del ricevente.\nPuoi mandare /annulla in qualsiasi momento per annullare l'operazione.")
@@ -130,11 +162,19 @@ func (b *bot) handleMessage(update *echotron.Update) stateFn {
 		b.remind()
 	}
 
-	return b.handleMessage
+	return nil
 }
 
 func (b *bot) Update(update *echotron.Update) {
-	b.state = b.state(update)
+	state, ok := b.state[userID(update)]
+	if !ok {
+		state = b.handleMessage
+	}
+	if next := state(update); next != nil {
+		b.state[userID(update)] = next
+	} else {
+		delete(b.state, userID(update))
+	}
 }
 
 func (b bot) save() {
@@ -184,18 +224,7 @@ func (b bot) paypalButton() *echotron.MessageOptions {
 }
 
 func (b bot) isAdmin(id int64) bool {
-	res, err := b.GetChatAdministrators(b.chatID)
-	if err != nil {
-		log.Println("isAdmin", "b.GetChatAdministrators", err)
-		return false
-	}
-
-	for _, r := range res.Result {
-		if id == r.User.ID {
-			return true
-		}
-	}
-	return false
+	return b.admins[id]
 }
 
 func userID(u *echotron.Update) int64 {
