@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/gob"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -19,6 +20,8 @@ type cachable struct {
 }
 
 var (
+	errIterationDone = pogreb.ErrIterationDone
+
 	cacheDir string
 	dbDir    string
 )
@@ -76,10 +79,56 @@ func (c cachable) Put(id int64) error {
 	return nil
 }
 
+func fold(fn func(key int64, val cachable) error) (err error) {
+	cc, err := pogreb.Open(dbDir, nil)
+	if err != nil {
+		return err
+	}
+	defer cc.Close()
+
+	iter := cc.Items()
+
+	for err == nil {
+		var k, v []byte
+
+		if k, v, err = iter.Next(); err == nil {
+			err = fn(btoi(k), bytesToCachable(v))
+		}
+	}
+
+	if errors.Is(err, pogreb.ErrIterationDone) {
+		err = nil
+	}
+	return
+}
+
+func keys() []int64 {
+	var keys []int64
+
+	fold(func(k int64, _ cachable) error {
+		keys = append(keys, k)
+		return nil
+	})
+	return keys
+}
+
 func itob(i int64) []byte {
 	b := make([]byte, 8)
 	binary.BigEndian.PutUint64(b, uint64(i))
 	return b
+}
+
+func btoi(b []byte) int64 {
+	return int64(binary.BigEndian.Uint64(b))
+}
+
+func bytesToCachable(b []byte) (c cachable) {
+	var (
+		buf = bytes.NewBuffer(b)
+		dec = gob.NewDecoder(buf)
+	)
+	dec.Decode(&c)
+	return
 }
 
 func init() {

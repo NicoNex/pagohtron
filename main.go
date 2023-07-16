@@ -240,6 +240,10 @@ func main() {
 		Timeout:        120,
 	}
 	dsp := echotron.NewDispatcher(token, newBot)
+	for _, k := range keys() {
+		log.Printf("starting dispatcher session with ID: %d", k)
+		dsp.AddSession(k)
+	}
 	for {
 		log.Println(dsp.PollOptions(true, dopts))
 		time.Sleep(5 * time.Second)
