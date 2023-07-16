@@ -19,27 +19,11 @@ var (
 	pagah []byte
 
 	commands = []echotron.BotCommand{
-		{Command: "/impostazioni", Description: "Generate a new Jitsi meeting."},
+		{Command: "/impostazioni", Description: "Setta le impostazione del gruppo."},
 	}
 )
 
 type stateFn func(*echotron.Update) stateFn
-
-type cachable struct {
-	ppnick      string
-	ppamount    float64
-	reminderDay int
-	lastAsked   int64
-}
-
-func (c cachable) String() string {
-	return fmt.Sprintf(
-		"Nickname PayPal ricevente: %s\nSomma richiesta: %f\nGiorno del reminder: %d",
-		c.ppnick,
-		c.ppamount,
-		c.reminderDay,
-	)
-}
 
 type bot struct {
 	chatID int64
@@ -81,9 +65,9 @@ func (b *bot) setDay(update *echotron.Update) stateFn {
 			return b.setDay
 		}
 
-		b.reminderDay = int(d)
+		b.ReminderDay = int(d)
 		// go b.writeDB()
-		b.messagef("Perfetto, ricorderò di pagare la somma di %.2f€ ogni %d del mese!", b.ppamount, b.reminderDay)
+		b.messagef("Perfetto, ricorderò di pagare la somma di %.2f€ ogni %d del mese!", b.PPAmount, b.ReminderDay)
 		return b.handleMessage
 	}
 }
@@ -101,7 +85,7 @@ func (b *bot) setAmount(update *echotron.Update) stateFn {
 			b.messagef("Formato non valido, per favore riprova.")
 			return b.setAmount
 		}
-		b.ppamount = a
+		b.PPAmount = a
 		// go b.writeDB()
 		b.messagef("Perfetto, ora specifica il giorno in cui ricordare il pagamento (compreso tra 1 e 28).")
 		return b.setDay
@@ -115,7 +99,7 @@ func (b *bot) setNick(update *echotron.Update) stateFn {
 		return b.handleMessage
 
 	default:
-		b.ppnick = msg
+		b.PPNick = msg
 		// go b.writeDB()
 		b.messagef("Perfetto, ora mandami la somma da richiedere mensilmente.")
 		return b.setAmount
@@ -127,11 +111,11 @@ func (b *bot) handleMessage(update *echotron.Update) stateFn {
 	case strings.HasPrefix(msg, "/annulla"):
 		b.messagef("Operazione annullata.")
 
-	case strings.HasPrefix(msg, "/impostazioni"):
+	case strings.HasPrefix(msg, "/impostazioni") /*&& b.isAdmin(userID(update))*/ :
 		b.messagef("Per prima cosa dimmi il nikname di PayPal del ricevente.\nPuoi mandare /annulla in qualsiasi momento per annullare l'operazione.")
 		return b.setNick
 
-	case strings.HasPrefix(msg, "/start"):
+	case strings.HasPrefix(msg, "/start") /*&& b.isAdmin(userID(update))*/ :
 		b.messagef("Ciao sono Pagohtron, il bot che ricorda i pagamenti mensili di gruppo!")
 		b.messagef("Prima di cominciare ho bisogno di sapere:\n- il nikname di PayPal del ricevente\n- la somma di denaro da chiedere\n- il giorno in cui devo ricordare a tutti il pagamento")
 		b.messagef("Per prima cosa dimmi il nikname di PayPal del ricevente.\nPuoi mandare /annulla in qualsiasi momento per annullare l'operazione.")
@@ -157,7 +141,7 @@ func (b bot) remind() {
 	if err != nil {
 		log.Println("remind", "b.SendVideoNote", err)
 	}
-	msg := fmt.Sprintf("Pagah!\nManda %.2f€ a %s!", b.ppamount, b.ppnick)
+	msg := fmt.Sprintf("Pagah!\nManda %.2f€ a %s!", b.PPAmount, b.PPNick)
 	if _, err = b.SendMessage(msg, b.chatID, b.paypalButton()); err != nil {
 		log.Println("remind", "b.SendMessage", err)
 	}
@@ -165,22 +149,46 @@ func (b bot) remind() {
 
 func (b bot) tick() {
 	for t := range time.Tick(time.Hour) {
-		if t.Day() == b.reminderDay && t.Hour() == 8 {
+		if t.Day() == b.ReminderDay && t.Hour() == 8 {
 			b.remind()
 		}
 	}
 }
 
 func (b bot) paypal() string {
-	return fmt.Sprintf("https://paypal.me/%s/%.2f", b.ppnick, b.ppamount)
+	return fmt.Sprintf("https://paypal.me/%s/%.2f", b.PPNick, b.PPAmount)
 }
 
 func (b bot) paypalButton() *echotron.MessageOptions {
 	return &echotron.MessageOptions{
 		ReplyMarkup: echotron.InlineKeyboardMarkup{
-			InlineKeyboard: [][]echotron.InlineKeyboardButton{{{URL: b.paypal()}}},
+			InlineKeyboard: [][]echotron.InlineKeyboardButton{
+				{{
+					Text: "PayPal",
+					URL:  b.paypal(),
+				}},
+			},
 		},
 	}
+}
+
+func (b bot) isAdmin(id int64) bool {
+	res, err := b.GetChatAdministrators(b.chatID)
+	if err != nil {
+		log.Println("isAdmin", "b.GetChatAdministrators", err)
+		return false
+	}
+
+	for _, r := range res.Result {
+		if id == r.User.ID {
+			return true
+		}
+	}
+	return false
+}
+
+func userID(u *echotron.Update) int64 {
+	return u.Message.From.ID
 }
 
 func main() {
