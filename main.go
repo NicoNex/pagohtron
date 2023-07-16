@@ -39,9 +39,14 @@ func (b bot) messagef(f string, a ...any) {
 }
 
 func newBot(chatID int64) echotron.Bot {
+	cachable, err := Cachable(chatID)
+	if err != nil {
+		log.Println("newBot", "Cachable", err)
+	}
 	b := &bot{
-		chatID: chatID,
-		API:    echotron.NewAPI(token),
+		chatID:   chatID,
+		API:      echotron.NewAPI(token),
+		cachable: cachable,
 	}
 	b.state = b.handleMessage
 	go b.tick()
@@ -66,7 +71,7 @@ func (b *bot) setDay(update *echotron.Update) stateFn {
 		}
 
 		b.ReminderDay = int(d)
-		// go b.writeDB()
+		go b.save()
 		b.messagef("Perfetto, ricorderò di pagare la somma di %.2f€ ogni %d del mese!", b.PPAmount, b.ReminderDay)
 		return b.handleMessage
 	}
@@ -86,7 +91,7 @@ func (b *bot) setAmount(update *echotron.Update) stateFn {
 			return b.setAmount
 		}
 		b.PPAmount = a
-		// go b.writeDB()
+		go b.save()
 		b.messagef("Perfetto, ora specifica il giorno in cui ricordare il pagamento (compreso tra 1 e 28).")
 		return b.setDay
 	}
@@ -100,7 +105,7 @@ func (b *bot) setNick(update *echotron.Update) stateFn {
 
 	default:
 		b.PPNick = msg
-		// go b.writeDB()
+		go b.save()
 		b.messagef("Perfetto, ora mandami la somma da richiedere mensilmente.\nEsempio: 1.50")
 		return b.setAmount
 	}
@@ -130,6 +135,12 @@ func (b *bot) handleMessage(update *echotron.Update) stateFn {
 
 func (b *bot) Update(update *echotron.Update) {
 	b.state = b.state(update)
+}
+
+func (b bot) save() {
+	if err := b.Put(b.chatID); err != nil {
+		log.Println(err)
+	}
 }
 
 func (b bot) remind() {
