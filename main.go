@@ -16,8 +16,7 @@ var (
 	//go:embed token
 	token string
 	//go:embed assets/pagah.mp4
-	pagah  []byte
-	pplink = "https://paypal.me/%s/%s"
+	pagah []byte
 
 	commands = []echotron.BotCommand{
 		{Command: "/impostazioni", Description: "Generate a new Jitsi meeting."},
@@ -150,18 +149,37 @@ func (b *bot) Update(update *echotron.Update) {
 }
 
 func (b bot) remind() {
-	b.SendVideoNote(
+	_, err := b.SendVideoNote(
 		echotron.NewInputFileBytes("pagah.mp4", pagah),
 		b.chatID,
 		nil,
 	)
+	if err != nil {
+		log.Println("remind", "b.SendVideoNote", err)
+	}
+	msg := fmt.Sprintf("Pagah!\nManda %.2f€ a %s!", b.ppamount, b.ppnick)
+	if _, err = b.SendMessage(msg, b.chatID, b.paypalButton()); err != nil {
+		log.Println("remind", "b.SendMessage", err)
+	}
 }
 
 func (b bot) tick() {
 	for t := range time.Tick(time.Hour) {
 		if t.Day() == b.reminderDay && t.Hour() == 8 {
-			b.messagef("pagah")
+			b.remind()
 		}
+	}
+}
+
+func (b bot) paypal() string {
+	return fmt.Sprintf("https://paypal.me/%s/%.2f", b.ppnick, b.ppamount)
+}
+
+func (b bot) paypalButton() *echotron.MessageOptions {
+	return &echotron.MessageOptions{
+		ReplyMarkup: echotron.InlineKeyboardMarkup{
+			InlineKeyboard: [][]echotron.InlineKeyboardButton{{{URL: b.paypal()}}},
+		},
 	}
 }
 
