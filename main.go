@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"math/rand"
 	"strconv"
 	"strings"
 	"time"
@@ -21,6 +22,57 @@ var (
 	commands = []echotron.BotCommand{
 		{Command: "/impostazioni", Description: "Modifica le impostazioni del gruppo."},
 	}
+
+	verbs = []string{
+		"pagato",
+		"sborsato",
+		"spillato",
+		"sganciato",
+		"investito",
+		"elargito",
+		"silurato",
+		"depositato",
+		"versato",
+	}
+
+	currencies = []string{
+		"gli euri",
+		"i quattrini",
+		"i fiorini",
+		"i sacchi",
+		"la pecunia",
+		"il danaro",
+		"il grano",
+		"la grana",
+		"la moneta",
+		"l'obolo",
+		"i fondi",
+		"il capitale",
+		"gli spicci",
+		"il patrimonio",
+		"gli averi",
+		"le finanze",
+	}
+
+	md2Esc = strings.NewReplacer(
+		"_", "\\_",
+		"[", "\\[",
+		"]", "\\]",
+		"(", "\\(",
+		")", "\\)",
+		"~", "\\~",
+		"`", "\\`",
+		">", "\\>",
+		"#", "\\#",
+		"+", "\\+",
+		"-", "\\-",
+		"=", "\\=",
+		"|", "\\|",
+		"{", "\\{",
+		"}", "\\}",
+		".", "\\.",
+		"!", "\\!",
+	)
 )
 
 type stateFn func(*echotron.Update) stateFn
@@ -163,10 +215,67 @@ func (b *bot) handleMessage(update *echotron.Update) stateFn {
 	return nil
 }
 
+func (b *bot) handleCallback(update *echotron.Update) stateFn {
+	var text string
+
+	switch update.CallbackQuery.Data {
+	case "confirm":
+		verb := random(verbs)
+
+		if isIn(userID(update), b.Payers) {
+			text = fmt.Sprintf("Fra, hai già %s.", verb)
+			break
+		}
+
+		currency := random(currencies)
+		text = fmt.Sprintf("Grazie per aver %s %s!", verb, currency)
+		b.Payers = append(b.Payers, userID(update))
+
+		b.ReminderMsg = fmt.Sprintf(
+			"%s\n@%s ha già %s %s.",
+			b.ReminderMsg,
+			update.CallbackQuery.From.Username,
+			verb,
+			currency,
+		)
+		b.save()
+
+		b.EditMessageText(
+			md2Esc.Replace(b.ReminderMsg),
+			echotron.NewMessageID(b.chatID, b.ReminderID),
+			&echotron.MessageTextOptions{
+				ParseMode:   echotron.MarkdownV2,
+				ReplyMarkup: b.reminderKbd(),
+			},
+		)
+	}
+
+	b.AnswerCallbackQuery(
+		update.CallbackQuery.ID,
+		&echotron.CallbackQueryOptions{
+			Text:      text,
+			ShowAlert: true,
+		},
+	)
+
+	return nil
+}
+
+func (b *bot) handleUpdate(update *echotron.Update) stateFn {
+	switch {
+	case update.Message != nil:
+		return b.handleMessage(update)
+	case update.CallbackQuery != nil:
+		return b.handleCallback(update)
+	}
+
+	return b.handleUpdate
+}
+
 func (b *bot) Update(update *echotron.Update) {
 	state, ok := b.state[userID(update)]
 	if !ok {
-		state = b.handleMessage
+		state = b.handleUpdate
 	}
 	if next := state(update); next != nil {
 		b.state[userID(update)] = next
@@ -181,7 +290,9 @@ func (b bot) save() {
 	}
 }
 
-func (b bot) remind() {
+func (b *bot) remind() {
+	b.Payers = []int64{}
+
 	_, err := b.SendVideoNote(
 		echotron.NewInputFileBytes("pagah.mp4", pagah),
 		b.chatID,
@@ -190,10 +301,21 @@ func (b bot) remind() {
 	if err != nil {
 		log.Println("remind", "b.SendVideoNote", err)
 	}
-	msg := fmt.Sprintf("Pagah!\nManda %.2f€ a %s!", b.PPAmount, b.PPNick)
-	if _, err = b.SendMessage(msg, b.chatID, b.paypalButton()); err != nil {
+
+	b.ReminderMsg = fmt.Sprintf("*Pagah!*\nManda %.2f€ a %s!\n", b.PPAmount, b.PPNick)
+	res, err := b.SendMessage(
+		md2Esc.Replace(b.ReminderMsg),
+		b.chatID,
+		&echotron.MessageOptions{
+			ParseMode:   echotron.MarkdownV2,
+			ReplyMarkup: b.reminderKbd(),
+		},
+	)
+	if err != nil {
 		log.Println("remind", "b.SendMessage", err)
 	}
+	b.ReminderID = res.Result.ID
+	b.save()
 }
 
 func (b bot) tick() {
@@ -204,21 +326,37 @@ func (b bot) tick() {
 	}
 }
 
+func (b bot) reminderKbd() echotron.InlineKeyboardMarkup {
+	return echotron.InlineKeyboardMarkup{
+		InlineKeyboard: [][]echotron.InlineKeyboardButton{
+			{{
+				Text: "PayPal",
+				URL:  b.paypal(),
+			}},
+			{{
+				Text:         "Ho pagato",
+				CallbackData: "confirm",
+			}},
+		},
+	}
+}
+
 func (b bot) paypal() string {
 	return fmt.Sprintf("https://paypal.me/%s/%.2f", b.PPNick, b.PPAmount)
 }
 
-func (b bot) paypalButton() *echotron.MessageOptions {
-	return &echotron.MessageOptions{
-		ReplyMarkup: echotron.InlineKeyboardMarkup{
-			InlineKeyboard: [][]echotron.InlineKeyboardButton{
-				{{
-					Text: "PayPal",
-					URL:  b.paypal(),
-				}},
-			},
-		},
+func isIn(item int64, list []int64) (found bool) {
+	for _, v := range list {
+		if item == v {
+			found = true
+		}
 	}
+
+	return
+}
+
+func random[T any](list []T) T {
+	return list[rand.Intn(len(list))]
 }
 
 func (b bot) isAdmin(id int64) bool {
@@ -226,16 +364,28 @@ func (b bot) isAdmin(id int64) bool {
 }
 
 func userID(u *echotron.Update) int64 {
-	return u.Message.From.ID
+	switch {
+	case u.Message != nil:
+		return u.Message.From.ID
+	case u.CallbackQuery != nil:
+		return u.CallbackQuery.From.ID
+	}
+
+	return 0
 }
 
 func main() {
+	rand.Seed(time.Now().UnixMilli())
+
 	api := echotron.NewAPI(token)
 	api.SetMyCommands(nil, commands...)
 
 	dopts := echotron.UpdateOptions{
-		AllowedUpdates: []echotron.UpdateType{echotron.MessageUpdate},
-		Timeout:        120,
+		AllowedUpdates: []echotron.UpdateType{
+			echotron.MessageUpdate,
+			echotron.CallbackQueryUpdate,
+		},
+		Timeout: 120,
 	}
 	dsp := echotron.NewDispatcher(token, newBot)
 	for _, k := range keys() {
