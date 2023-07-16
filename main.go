@@ -264,6 +264,15 @@ func (b *bot) handleCallback(update *echotron.Update) stateFn {
 				ReplyMarkup: kbd,
 			},
 		)
+
+		msg := fmt.Sprintf(
+			"@%s ha %s %s!",
+			update.CallbackQuery.From.Username,
+			verb,
+			currency,
+		)
+
+		b.SendMessage(msg, b.chatID, nil)
 	}
 
 	b.AnswerCallbackQuery(
