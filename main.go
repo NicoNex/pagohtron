@@ -250,7 +250,7 @@ func (b *bot) handleCallback(update *echotron.Update) stateFn {
 			b.ReminderMsg = fmt.Sprintf(
 				"%s\n\nHanno pagato tutti, passo il mese prossimo a chiedere %s!",
 				b.ReminderMsg,
-				random(currency),
+				random(currencies),
 			)
 
 			kbd = echotron.InlineKeyboardMarkup{}
