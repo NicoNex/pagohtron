@@ -19,7 +19,7 @@ var (
 	pagah []byte
 
 	commands = []echotron.BotCommand{
-		{Command: "/impostazioni", Description: "Setta le impostazione del gruppo."},
+		{Command: "/impostazioni", Description: "Modifica le impostazioni del gruppo."},
 	}
 )
 
@@ -101,7 +101,7 @@ func (b *bot) setNick(update *echotron.Update) stateFn {
 	default:
 		b.PPNick = msg
 		// go b.writeDB()
-		b.messagef("Perfetto, ora mandami la somma da richiedere mensilmente.")
+		b.messagef("Perfetto, ora mandami la somma da richiedere mensilmente.\nEsempio: 1.50")
 		return b.setAmount
 	}
 }
@@ -112,13 +112,13 @@ func (b *bot) handleMessage(update *echotron.Update) stateFn {
 		b.messagef("Operazione annullata.")
 
 	case strings.HasPrefix(msg, "/impostazioni") /*&& b.isAdmin(userID(update))*/ :
-		b.messagef("Per prima cosa dimmi il nikname di PayPal del ricevente.\nPuoi mandare /annulla in qualsiasi momento per annullare l'operazione.")
+		b.messagef("Per prima cosa dimmi il nickname di PayPal del ricevente.\nPuoi mandare /annulla in qualsiasi momento per annullare l'operazione.")
 		return b.setNick
 
 	case strings.HasPrefix(msg, "/start") /*&& b.isAdmin(userID(update))*/ :
 		b.messagef("Ciao sono Pagohtron, il bot che ricorda i pagamenti mensili di gruppo!")
-		b.messagef("Prima di cominciare ho bisogno di sapere:\n- il nikname di PayPal del ricevente\n- la somma di denaro da chiedere\n- il giorno in cui devo ricordare a tutti il pagamento")
-		b.messagef("Per prima cosa dimmi il nikname di PayPal del ricevente.\nPuoi mandare /annulla in qualsiasi momento per annullare l'operazione.")
+		b.messagef("Prima di cominciare ho bisogno di sapere:\n- il nickname di PayPal del ricevente\n- la somma di denaro da chiedere\n- il giorno in cui devo ricordare a tutti il pagamento")
+		b.messagef("Per prima cosa dimmi il nickname di PayPal del ricevente.\nPuoi mandare /annulla in qualsiasi momento per annullare l'operazione.")
 		return b.setNick
 
 	case strings.HasPrefix(msg, "/test"):
