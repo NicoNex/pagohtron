@@ -20,7 +20,8 @@ var (
 	pagah []byte
 
 	commands = []echotron.BotCommand{
-		{Command: "/impostazioni", Description: "Modifica le impostazioni del gruppo."},
+		{Command: "/configura", Description: "Configura il bot."},
+		{Command: "/impostazioni", Description: "Mostra le impostazioni del bot."},
 	}
 
 	verbs = []string{
@@ -164,7 +165,7 @@ func (b *bot) setDay(update *echotron.Update) stateFn {
 
 		b.ReminderDay = int(d)
 		go b.save()
-		b.messagef("Perfetto, ricorderò di pagare la somma di %.2f€ ogni %d del mese!", b.PPAmount, b.ReminderDay)
+		b.messagef("Perfetto, ricorderò di pagare la somma di *%.2f€* ogni %d del mese!", b.PPAmount, b.ReminderDay)
 		return nil
 	}
 }
@@ -184,7 +185,7 @@ func (b *bot) setAmount(update *echotron.Update) stateFn {
 		}
 		b.PPAmount = a
 		go b.save()
-		b.messagef("Perfetto, ora specifica il giorno in cui ricordare il pagamento (compreso tra 1 e 28).")
+		b.messagef("Perfetto, ora specifica il *giorno* in cui ricordare il pagamento (compreso tra 1 e 28).")
 		return b.setDay
 	}
 }
@@ -198,25 +199,30 @@ func (b *bot) setNick(update *echotron.Update) stateFn {
 	default:
 		b.PPNick = msg
 		go b.save()
-		b.messagef("Perfetto, ora mandami la somma da richiedere mensilmente.\nEsempio: 1.50")
+		b.messagef("Perfetto, ora mandami la *somma* da richiedere mensilmente.\nEsempio: 1.50")
 		return b.setAmount
 	}
 }
 
 func (b bot) handleMessage(update *echotron.Update) stateFn {
 	switch msg := update.Message.Text; {
-	case strings.HasPrefix(msg, "/annulla"):
-		b.messagef("Operazione annullata.")
-
-	case strings.HasPrefix(msg, "/impostazioni") && b.isAdmin(userID(update)):
-		b.messagef("Per prima cosa dimmi il nickname di PayPal del ricevente.\nPuoi mandare /annulla in qualsiasi momento per annullare l'operazione.")
+	case strings.HasPrefix(msg, "/configura") && b.isAdmin(userID(update)):
+		b.messagef("Per prima cosa dimmi il *nickname* di *PayPal* del ricevente.\nPuoi mandare /annulla in qualsiasi momento per annullare l'operazione.")
 		return b.setNick
 
 	case strings.HasPrefix(msg, "/start") && b.isAdmin(userID(update)):
-		b.messagef("Ciao sono Pagohtron, il bot che ricorda i pagamenti mensili di gruppo!")
-		b.messagef("Prima di cominciare ho bisogno di sapere:\n- il nickname di PayPal del ricevente\n- la somma di denaro da chiedere\n- il giorno in cui devo ricordare a tutti il pagamento")
-		b.messagef("Per prima cosa dimmi il nickname di PayPal del ricevente.\nPuoi mandare /annulla in qualsiasi momento per annullare l'operazione.")
+		b.messagef("Ciao sono *Pagohtron*, il bot che ricorda i pagamenti mensili di gruppo!")
+		b.messagef("Prima di cominciare ho bisogno di sapere:\n- il *nickname* di PayPal del ricevente\n- la *somma di denaro* da chiedere\n- il *giorno* in cui devo ricordare a tutti il pagamento")
+		b.messagef("Per prima cosa dimmi il *nickname* di PayPal del ricevente.\nPuoi mandare /annulla in qualsiasi momento per annullare l'operazione.")
 		return b.setNick
+
+	case strings.HasPrefix(msg, "/impostazioni"):
+		b.messagef(
+			"Nickname PayPal ricevente: *%s*\nSomma da versare: *%.2f€*\nGiorno del reminder: *%d di ogni mese*",
+			b.PPNick,
+			b.PPAmount,
+			b.ReminderDay,
+		)
 
 	case strings.HasPrefix(msg, "/test"):
 		b.remind()
@@ -332,7 +338,7 @@ func (b bot) alreadyPaidAlert(update *echotron.Update) {
 
 func (b bot) reminderMsg(update *echotron.Update) string {
 	return fmt.Sprintf(
-		"%s\n@%s ha già %s %s.",
+		"%s\n@%s ha %s %s.",
 		b.ReminderMsg,
 		update.CallbackQuery.From.Username,
 		random(verbs),
