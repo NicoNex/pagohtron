@@ -417,11 +417,11 @@ func userID(u *echotron.Update) int64 {
 func main() {
 	rand.Seed(time.Now().UnixMilli())
 
-	// Intercept SIGINT and SIGTERM and gracefully close the DB.
-	signalChan := make(chan os.Signal, 1)
-	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
+	// Intercept SIGINT, SIGTERM, SIGSEGV and SIGKILL and gracefully close the DB.
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGSEGV, syscall.SIGKILL)
 	go func() {
-		<-signalChan
+		<-sigChan
 		cc.Close()
 		os.Exit(0)
 	}()
