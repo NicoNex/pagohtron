@@ -83,12 +83,20 @@ type bot struct {
 	chatID int64
 	state  map[int64]stateFn
 	admins map[int64]bool
-	cachable
+	*cachable
 	echotron.API
 }
 
 func (b bot) messagef(f string, a ...any) {
-	if _, err := b.SendMessage(fmt.Sprintf(f, a...), b.chatID, nil); err != nil {
+	_, err := b.SendMessage(
+		md2Esc.Replace(fmt.Sprintf(f, a...)),
+		b.chatID,
+		&echotron.MessageOptions{
+			ParseMode: echotron.MarkdownV2,
+		},
+	)
+
+	if err != nil {
 		log.Println("messagef", "b.SendMessage", err)
 	}
 }
@@ -111,7 +119,7 @@ func (b *bot) init() {
 	if err != nil {
 		log.Println("b.init", "Cachable", err)
 	}
-	b.cachable = cachable
+	b.cachable = &cachable
 
 	// Set isGroup field.
 	res, err := b.GetChat(b.chatID)
@@ -195,7 +203,7 @@ func (b *bot) setNick(update *echotron.Update) stateFn {
 	}
 }
 
-func (b *bot) handleMessage(update *echotron.Update) stateFn {
+func (b bot) handleMessage(update *echotron.Update) stateFn {
 	switch msg := update.Message.Text; {
 	case strings.HasPrefix(msg, "/annulla"):
 		b.messagef("Operazione annullata.")
@@ -214,92 +222,51 @@ func (b *bot) handleMessage(update *echotron.Update) stateFn {
 		b.remind()
 	}
 
-	return nil
+	return b.handleMessage
 }
 
-func (b *bot) handleCallback(update *echotron.Update) stateFn {
-	var text string
-
-	switch update.CallbackQuery.Data {
-	case "confirm":
-		verb := random(verbs)
-
-		if isIn(userID(update), b.Payers) {
-			text = fmt.Sprintf("Fra, hai già %s.", verb)
-			break
-		}
-
-		currency := random(currencies)
-		text = fmt.Sprintf("Grazie per aver %s %s!", verb, currency)
-		b.Payers = append(b.Payers, userID(update))
-
-		b.ReminderMsg = fmt.Sprintf(
-			"%s\n@%s ha già %s %s.",
-			b.ReminderMsg,
-			update.CallbackQuery.From.Username,
-			verb,
-			currency,
-		)
-		b.save()
-
-		kbd := b.reminderKbd()
-
-		if len(b.Payers) == b.TotalPayers {
-			b.ReminderMsg = fmt.Sprintf(
-				"%s\n\nHanno pagato tutti, passo il mese prossimo a chiedere %s!",
-				b.ReminderMsg,
-				random(currencies),
-			)
-
-			kbd = echotron.InlineKeyboardMarkup{}
-		}
-
-		b.EditMessageText(
-			md2Esc.Replace(b.ReminderMsg),
-			echotron.NewMessageID(b.chatID, b.ReminderID),
-			&echotron.MessageTextOptions{
-				ParseMode:   echotron.MarkdownV2,
-				ReplyMarkup: kbd,
-			},
-		)
-
-		msg := fmt.Sprintf(
-			"@%s ha %s %s!",
-			update.CallbackQuery.From.Username,
-			verb,
-			currency,
-		)
-
-		b.SendMessage(msg, b.chatID, nil)
+func (b *bot) handleCallback(update *echotron.Update) {
+	if update.CallbackQuery.Data != "confirm" {
+		b.AnswerCallbackQuery(update.CallbackQuery.ID, nil)
+		return
 	}
+
+	// If the user is among the payers tell him he has already paid.
+	if isIn(userID(update), b.Payers) {
+		b.alreadyPaidAlert(update)
+		return
+	}
+
+	b.Payers = append(b.Payers, userID(update))
+	b.ReminderMsg = b.reminderMsg(update)
+	kbd := b.reminderKbd()
+
+	if len(b.Payers) == b.TotalPayers {
+		b.ReminderMsg = b.allPaidMsg(update)
+		kbd = echotron.InlineKeyboardMarkup{}
+	}
+	b.editReminder(kbd)
 
 	b.AnswerCallbackQuery(
 		update.CallbackQuery.ID,
 		&echotron.CallbackQueryOptions{
-			Text:      text,
+			Text:      thanksMsg(),
 			ShowAlert: true,
 		},
 	)
-
-	return nil
-}
-
-func (b *bot) handleUpdate(update *echotron.Update) stateFn {
-	switch {
-	case update.Message != nil:
-		return b.handleMessage(update)
-	case update.CallbackQuery != nil:
-		return b.handleCallback(update)
-	}
-
-	return b.handleUpdate
 }
 
 func (b *bot) Update(update *echotron.Update) {
+	if update.CallbackQuery != nil {
+		b.handleCallback(update)
+		return
+	}
+
 	state, ok := b.state[userID(update)]
 	if !ok {
-		state = b.handleUpdate
+		state = b.handleMessage
 	}
+
 	if next := state(update); next != nil {
 		b.state[userID(update)] = next
 	} else {
@@ -309,7 +276,7 @@ func (b *bot) Update(update *echotron.Update) {
 
 func (b bot) save() {
 	if err := b.Put(b.chatID); err != nil {
-		log.Println(err)
+		log.Println("b.save", err)
 	}
 }
 
@@ -347,6 +314,58 @@ func (b *bot) remind() {
 	}
 	b.ReminderID = res.Result.ID
 	b.save()
+}
+
+func thanksMsg() string {
+	return fmt.Sprintf("Grazie per aver %s %s!", random(verbs), random(currencies))
+}
+
+func (b bot) alreadyPaidAlert(update *echotron.Update) {
+	b.AnswerCallbackQuery(
+		update.CallbackQuery.ID,
+		&echotron.CallbackQueryOptions{
+			Text:      fmt.Sprintf("Fra, hai già %s.", random(verbs)),
+			ShowAlert: true,
+		},
+	)
+}
+
+func (b bot) reminderMsg(update *echotron.Update) string {
+	return fmt.Sprintf(
+		"%s\n@%s ha già %s %s.",
+		b.ReminderMsg,
+		update.CallbackQuery.From.Username,
+		random(verbs),
+		random(currencies),
+	)
+}
+
+func (b bot) allPaidMsg(update *echotron.Update) string {
+	return fmt.Sprintf(
+		"%s\n\nHanno pagato tutti, passo il mese prossimo a chiedere %s!",
+		b.ReminderMsg,
+		random(currencies),
+	)
+}
+
+func (b bot) sendConfirmation(update *echotron.Update) {
+	b.messagef(
+		"@%s ha %s %s!",
+		update.CallbackQuery.From.Username,
+		random(verbs),
+		random(currencies),
+	)
+}
+
+func (b bot) editReminder(kbd echotron.InlineKeyboardMarkup) {
+	b.EditMessageText(
+		md2Esc.Replace(b.ReminderMsg),
+		echotron.NewMessageID(b.chatID, b.ReminderID),
+		&echotron.MessageTextOptions{
+			ParseMode:   echotron.MarkdownV2,
+			ReplyMarkup: kbd,
+		},
+	)
 }
 
 func (b bot) tick() {
