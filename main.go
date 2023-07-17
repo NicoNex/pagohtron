@@ -96,7 +96,6 @@ func (b bot) messagef(f string, a ...any) {
 			ParseMode: echotron.MarkdownV2,
 		},
 	)
-
 	if err != nil {
 		log.Println("messagef", "b.SendMessage", err)
 	}
@@ -239,20 +238,12 @@ func (b *bot) handleCallback(update *echotron.Update) {
 
 	// If the user is among the payers tell him he has already paid.
 	if isIn(userID(update), b.Payers) {
-		b.alreadyPaidAlert(update)
+		b.alreadyPaidAlert(update.CallbackQuery)
 		return
 	}
 
 	b.Payers = append(b.Payers, userID(update))
-	b.ReminderMsg = b.reminderMsg(update)
-	kbd := b.reminderKbd()
-
-	if len(b.Payers) == b.TotalPayers {
-		b.ReminderMsg = b.allPaidMsg(update)
-		kbd = echotron.InlineKeyboardMarkup{}
-	}
-	b.editReminder(kbd)
-
+	b.sendConfirmation(update.CallbackQuery)
 	b.AnswerCallbackQuery(
 		update.CallbackQuery.ID,
 		&echotron.CallbackQueryOptions{
@@ -287,17 +278,11 @@ func (b bot) save() {
 }
 
 func (b *bot) remind() {
+	// Reset the payers array.
 	b.Payers = []int64{}
 
-	count, err := b.GetChatMemberCount(b.chatID)
-	if err != nil {
-		log.Println("remind", "b.GetChatMemberCount", err)
-	}
-	// Subtract 1 to exclude the bot from the payers, otherwise
-	// there will always be a missing payer.
-	b.TotalPayers = count.Result - 1
-
-	_, err = b.SendVideoNote(
+	// Send Zeb89's Pagah video note.
+	_, err := b.SendVideoNote(
 		echotron.NewInputFileBytes("pagah.mp4", pagah),
 		b.chatID,
 		nil,
@@ -306,9 +291,10 @@ func (b *bot) remind() {
 		log.Println("remind", "b.SendVideoNote", err)
 	}
 
-	b.ReminderMsg = fmt.Sprintf("*Pagah!*\nManda %.2f€ a %s!\n", b.PPAmount, b.PPNick)
+	// Send the reminder message.
+	msg := fmt.Sprintf("*Pagah!*\nManda %.2f€ a %s!\n", b.PPAmount, b.PPNick)
 	res, err := b.SendMessage(
-		md2Esc.Replace(b.ReminderMsg),
+		md2Esc.Replace(msg),
 		b.chatID,
 		&echotron.MessageOptions{
 			ParseMode:   echotron.MarkdownV2,
@@ -318,60 +304,44 @@ func (b *bot) remind() {
 	if err != nil {
 		log.Println("remind", "b.SendMessage", err)
 	}
+
+	// Save the reminder message ID for mentioning it later.
 	b.ReminderID = res.Result.ID
+	if _, err := b.PinChatMessage(b.chatID, b.ReminderID, nil); err != nil {
+		log.Println("b.remind", "b.PinChatMessage", err)
+	}
 	b.save()
 }
 
-func thanksMsg() string {
-	return fmt.Sprintf("Grazie per aver %s %s!", random(verbs), random(currencies))
-}
-
-func (b bot) alreadyPaidAlert(update *echotron.Update) {
-	b.AnswerCallbackQuery(
-		update.CallbackQuery.ID,
+func (b bot) alreadyPaidAlert(q *echotron.CallbackQuery) {
+	_, err := b.AnswerCallbackQuery(
+		q.ID,
 		&echotron.CallbackQueryOptions{
 			Text:      fmt.Sprintf("Fra, hai già %s.", random(verbs)),
 			ShowAlert: true,
 		},
 	)
+	if err != nil {
+		log.Println("b.alreadyPaidAlert", "b.AnswerCallbackQuery", err)
+	}
 }
 
-func (b bot) reminderMsg(update *echotron.Update) string {
-	return fmt.Sprintf(
-		"%s\n@%s ha %s %s.",
-		b.ReminderMsg,
-		update.CallbackQuery.From.Username,
-		random(verbs),
-		random(currencies),
-	)
-}
-
-func (b bot) allPaidMsg(update *echotron.Update) string {
-	return fmt.Sprintf(
-		"%s\n\nHanno pagato tutti, passo il mese prossimo a chiedere %s!",
-		b.ReminderMsg,
-		random(currencies),
-	)
-}
-
-func (b bot) sendConfirmation(update *echotron.Update) {
-	b.messagef(
-		"@%s ha %s %s!",
-		update.CallbackQuery.From.Username,
-		random(verbs),
-		random(currencies),
-	)
-}
-
-func (b bot) editReminder(kbd echotron.InlineKeyboardMarkup) {
-	b.EditMessageText(
-		md2Esc.Replace(b.ReminderMsg),
-		echotron.NewMessageID(b.chatID, b.ReminderID),
-		&echotron.MessageTextOptions{
-			ParseMode:   echotron.MarkdownV2,
-			ReplyMarkup: kbd,
+func (b bot) sendConfirmation(q *echotron.CallbackQuery) {
+	_, err := b.SendMessage(
+		fmt.Sprintf(
+			"%s ha %s %s!",
+			usernameOrName(q),
+			random(verbs),
+			random(currencies),
+		),
+		b.chatID,
+		&echotron.MessageOptions{
+			ReplyToMessageID: b.ReminderID,
 		},
 	)
+	if err != nil {
+		log.Println("sendConfirmation", "b.SendMessage", err)
+	}
 }
 
 func (b bot) tick() {
@@ -401,13 +371,16 @@ func (b bot) paypal() string {
 	return fmt.Sprintf("https://paypal.me/%s/%.2f", b.PPNick, b.PPAmount)
 }
 
+func thanksMsg() string {
+	return fmt.Sprintf("Grazie per aver %s %s!", random(verbs), random(currencies))
+}
+
 func isIn[T comparable](item T, list []T) (found bool) {
 	for _, v := range list {
 		if item == v {
 			found = true
 		}
 	}
-
 	return
 }
 
@@ -417,6 +390,14 @@ func random[T any](list []T) T {
 
 func (b bot) isAdmin(id int64) bool {
 	return b.admins[id]
+}
+
+func usernameOrName(q *echotron.CallbackQuery) string {
+	if uname := q.From.Username; uname != "" {
+		return "@" + uname
+	} else {
+		return q.From.FirstName
+	}
 }
 
 func userID(u *echotron.Update) int64 {

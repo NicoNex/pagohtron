@@ -14,13 +14,11 @@ import (
 )
 
 type cachable struct {
-	ReminderMsg string
 	ReminderID  int
 	Payers      []int64
 	PPNick      string
 	PPAmount    float64
 	ReminderDay int
-	TotalPayers int
 }
 
 var (
