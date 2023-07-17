@@ -25,6 +25,7 @@ var (
 	commands = []echotron.BotCommand{
 		{Command: "/configura", Description: "Configura il bot."},
 		{Command: "/impostazioni", Description: "Mostra le impostazioni del bot."},
+		{Command: "/about", Description: "Per codice, problemi e suggerimenti."},
 	}
 
 	verbs = []string{
@@ -60,6 +61,10 @@ var (
 		"il tributo",
 	}
 
+	md = &echotron.MessageOptions{
+		ParseMode: echotron.MarkdownV2,
+	}
+
 	md2Esc = strings.NewReplacer(
 		"_", "\\_",
 		"[", "\\[",
@@ -93,7 +98,7 @@ type bot struct {
 
 func (b bot) messagef(f string, a ...any) {
 	_, err := b.SendMessage(
-		md2Esc.Replace(fmt.Sprintf(f, a...)),
+		fmt.Sprintf(f, a...),
 		b.chatID,
 		&echotron.MessageOptions{
 			ParseMode: echotron.MarkdownV2,
@@ -157,17 +162,21 @@ func (b *bot) setDay(update *echotron.Update) stateFn {
 	default:
 		d, err := strconv.ParseInt(msg, 10, 32)
 		if err != nil {
-			b.messagef("Formato non valido, per favore riprova.")
+			b.messagef("Formato non valido, per favore riprova\\.")
 			return b.setDay
 		}
 		if d < 1 || d > 28 {
-			b.messagef("Per favore inserisci una data compresa tra 1 e 28!")
+			b.messagef("Per favore inserisci una data *compresa tra 1 e 28*\\!")
 			return b.setDay
 		}
 
 		b.ReminderDay = int(d)
 		go b.save()
-		b.messagef("Perfetto, ricorderò di pagare la somma di *%.2f€* ogni %d del mese!", b.PPAmount, b.ReminderDay)
+		b.messagef(
+			"Perfetto, ricorderò di pagare la somma di *%s€* ogni *%d* del mese\\!",
+			md2Esc.Replace(fmt.Sprintf("%.2f", b.PPAmount)),
+			b.ReminderDay,
+		)
 		return nil
 	}
 }
@@ -182,12 +191,12 @@ func (b *bot) setAmount(update *echotron.Update) stateFn {
 		a, err := strconv.ParseFloat(msg, 64)
 		if err != nil {
 			log.Println("setAmount", err)
-			b.messagef("Formato non valido, per favore riprova.")
+			b.messagef("Formato non valido, per favore riprova\\.")
 			return b.setAmount
 		}
 		b.PPAmount = a
 		go b.save()
-		b.messagef("Perfetto, ora specifica il *giorno* in cui ricordare il pagamento (compreso tra 1 e 28).")
+		b.messagef("Perfetto, ora specifica il *giorno* in cui ricordare il pagamento \\(*compreso tra 1 e 28*\\)\\.")
 		return b.setDay
 	}
 }
@@ -201,7 +210,7 @@ func (b *bot) setNick(update *echotron.Update) stateFn {
 	default:
 		b.PPNick = msg
 		go b.save()
-		b.messagef("Perfetto, ora mandami la *somma* da richiedere mensilmente.\nEsempio: 1.50")
+		b.messagef("Perfetto, ora mandami la *somma* da richiedere mensilmente\\.\nEsempio: 1\\.50")
 		return b.setAmount
 	}
 }
@@ -209,13 +218,13 @@ func (b *bot) setNick(update *echotron.Update) stateFn {
 func (b bot) handleMessage(update *echotron.Update) stateFn {
 	switch msg := update.Message.Text; {
 	case strings.HasPrefix(msg, "/configura") && b.isAdmin(userID(update)):
-		b.messagef("Per prima cosa dimmi il *nickname* di *PayPal* del ricevente.\nPuoi mandare /annulla in qualsiasi momento per annullare l'operazione.")
+		b.messagef("Per prima cosa dimmi il *nickname* di *PayPal* del ricevente\\.\nPuoi mandare /annulla in qualsiasi momento per annullare l'operazione.")
 		return b.setNick
 
 	case strings.HasPrefix(msg, "/start") && b.isAdmin(userID(update)):
-		b.messagef("Ciao sono *Pagohtron*, il bot che ricorda i pagamenti mensili di gruppo!")
-		b.messagef("Prima di cominciare ho bisogno di sapere:\n- il *nickname* di PayPal del ricevente\n- la *somma di denaro* da chiedere\n- il *giorno* in cui devo ricordare a tutti il pagamento")
-		b.messagef("Per prima cosa dimmi il *nickname* di PayPal del ricevente.\nPuoi mandare /annulla in qualsiasi momento per annullare l'operazione.")
+		b.messagef("Ciao sono *Pagohtron*, il bot che ricorda i pagamenti mensili di gruppo\\!")
+		b.messagef("Prima di cominciare ho bisogno di sapere:\n\\- il *nickname* di PayPal del ricevente\n\\- la *somma di denaro* da chiedere\n\\- il *giorno* in cui devo ricordare a tutti il pagamento")
+		b.messagef("Per prima cosa dimmi il *nickname* di PayPal del ricevente\\.\nPuoi mandare /annulla in qualsiasi momento per annullare l'operazione\\.")
 		return b.setNick
 
 	case strings.HasPrefix(msg, "/impostazioni"):
@@ -225,6 +234,9 @@ func (b bot) handleMessage(update *echotron.Update) stateFn {
 			b.PPAmount,
 			b.ReminderDay,
 		)
+
+	case strings.HasPrefix(msg, "/about"):
+		b.sendAbout()
 
 	case strings.HasPrefix(msg, "/test"):
 		b.remind()
@@ -281,6 +293,8 @@ func (b bot) save() {
 }
 
 func (b *bot) remind() {
+	defer b.save()
+
 	// Reset the payers array.
 	b.Payers = []int64{}
 
@@ -295,9 +309,13 @@ func (b *bot) remind() {
 	}
 
 	// Send the reminder message.
-	msg := fmt.Sprintf("*Pagah!*\nManda %.2f€ a %s!\n", b.PPAmount, b.PPNick)
+	msg := fmt.Sprintf(
+		"*Pagah\\!*\nManda %s€ a %s\\!\n",
+		md2Esc.Replace(fmt.Sprintf("%.2f", b.PPAmount)),
+		b.PPNick,
+	)
 	res, err := b.SendMessage(
-		md2Esc.Replace(msg),
+		msg,
 		b.chatID,
 		&echotron.MessageOptions{
 			ParseMode:   echotron.MarkdownV2,
@@ -306,6 +324,7 @@ func (b *bot) remind() {
 	)
 	if err != nil {
 		log.Println("remind", "b.SendMessage", err)
+		return
 	}
 
 	// Save the reminder message ID for mentioning it later.
@@ -313,7 +332,6 @@ func (b *bot) remind() {
 	if _, err := b.PinChatMessage(b.chatID, b.ReminderID, nil); err != nil {
 		log.Println("b.remind", "b.PinChatMessage", err)
 	}
-	b.save()
 }
 
 func (b bot) alreadyPaidAlert(q *echotron.CallbackQuery) {
@@ -344,6 +362,20 @@ func (b bot) sendConfirmation(q *echotron.CallbackQuery) {
 	)
 	if err != nil {
 		log.Println("sendConfirmation", "b.SendMessage", err)
+	}
+}
+
+func (b bot) sendAbout() {
+	_, err := b.SendMessage(`Bot scritto con [Echotron](https://github\.com/NicoNex/echotron) da @NicoNex e @Dj\_Mike238\.
+Il codice del bot è aperto e lo trovi su [GitHub](https://github\.com/NicoNex/pagohtron)\.
+Se hai suggerimenti o problemi contattaci su Telegram o apri una [issue](https://github\.com/NicoNex/pagohtron/issues) su GitHub\.`,
+		b.chatID,
+		&echotron.MessageOptions{
+			ParseMode: echotron.MarkdownV2,
+		},
+	)
+	if err != nil {
+		log.Println("b.sendAbout", "b.SendMessage", err)
 	}
 }
 
