@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/akrylysov/pogreb"
 )
@@ -22,6 +23,8 @@ type cachable struct {
 }
 
 var (
+	cc *pogreb.DB
+
 	errIterationDone = pogreb.ErrIterationDone
 
 	cacheDir string
@@ -43,12 +46,6 @@ func Cachable(id int64) (c cachable, err error) {
 		dec = gob.NewDecoder(&buf)
 	)
 
-	cc, err := pogreb.Open(dbDir, nil)
-	if err != nil {
-		return cachable{}, fmt.Errorf("Get pogreb.Open %w", err)
-	}
-	defer cc.Close()
-
 	b, err := cc.Get(itob(id))
 	if err != nil {
 		return cachable{}, fmt.Errorf("Get cc.Get %w", err)
@@ -64,17 +61,11 @@ func Cachable(id int64) (c cachable, err error) {
 }
 
 func (c cachable) Put(id int64) error {
-	cc, err := pogreb.Open(dbDir, nil)
-	if err != nil {
-		return fmt.Errorf("Put pogreb.Open %w", err)
-	}
-	defer cc.Close()
-
 	var buf bytes.Buffer
+
 	if err := gob.NewEncoder(&buf).Encode(c); err != nil {
 		return fmt.Errorf("Put gob.NewEncoder(&buf).Encode(c) %w", err)
 	}
-
 	if err := cc.Put(itob(id), buf.Bytes()); err != nil {
 		return fmt.Errorf("Put cc.Put %w", err)
 	}
@@ -82,14 +73,7 @@ func (c cachable) Put(id int64) error {
 }
 
 func fold(fn func(key int64, val cachable) error) (err error) {
-	cc, err := pogreb.Open(dbDir, nil)
-	if err != nil {
-		return err
-	}
-	defer cc.Close()
-
 	iter := cc.Items()
-
 	for err == nil {
 		var k, v []byte
 
@@ -134,6 +118,8 @@ func bytesToCachable(b []byte) (c cachable) {
 }
 
 func init() {
+	const week = time.Hour * 24 * 7
+
 	cd, err := os.UserCacheDir()
 	if err != nil {
 		log.Fatal("init", "os.UserCacheDir", err)
@@ -145,4 +131,12 @@ func init() {
 		}
 	}
 	dbDir = filepath.Join(cacheDir, "cache")
+
+	cc, err = pogreb.Open(dbDir, &pogreb.Options{
+		BackgroundSyncInterval:       -1,
+		BackgroundCompactionInterval: week,
+	})
+	if err != nil {
+		log.Fatal("init", "pogreb.Open", err)
+	}
 }

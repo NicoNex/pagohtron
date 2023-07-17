@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	_ "embed"
@@ -413,6 +416,15 @@ func userID(u *echotron.Update) int64 {
 
 func main() {
 	rand.Seed(time.Now().UnixMilli())
+
+	// Intercept SIGINT and SIGTERM and gracefully close the DB.
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-signalChan
+		cc.Close()
+		os.Exit(0)
+	}()
 
 	api := echotron.NewAPI(token)
 	api.SetMyCommands(nil, commands...)
