@@ -27,8 +27,9 @@ var (
 
 	errIterationDone = pogreb.ErrIterationDone
 
-	cacheDir string
-	dbDir    string
+	cacheDir  string
+	dbDir     string
+	pagahPath string
 )
 
 func (c cachable) String() string {
@@ -131,6 +132,7 @@ func init() {
 		}
 	}
 	dbDir = filepath.Join(cacheDir, "cache")
+	pagahPath = filepath.Join(cacheDir, "pagah_id")
 
 	cc, err = pogreb.Open(dbDir, &pogreb.Options{
 		BackgroundSyncInterval:       -1,

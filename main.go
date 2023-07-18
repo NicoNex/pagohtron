@@ -84,6 +84,8 @@ var (
 		".", "\\.",
 		"!", "\\!",
 	)
+
+	pagahID string
 )
 
 type stateFn func(*echotron.Update) stateFn
@@ -292,21 +294,45 @@ func (b bot) save() {
 	}
 }
 
-func (b *bot) remind() {
-	defer b.save()
+func (b bot) sendPagah() {
+	if pagahID != "" {
+		_, err := b.SendVideoNote(
+			echotron.NewInputFileID(pagahID),
+			b.chatID,
+			nil,
+		)
+		if err != nil {
+			log.Println("b.sendPagah", "b.SendVideoNote", err)
+			return
+		}
+		return
+	}
 
-	// Reset the payers array.
-	b.Payers = []int64{}
-
-	// Send Zeb89's Pagah video note.
-	_, err := b.SendVideoNote(
+	res, err := b.SendVideoNote(
 		echotron.NewInputFileBytes("pagah.mp4", pagah),
 		b.chatID,
 		nil,
 	)
 	if err != nil {
-		log.Println("remind", "b.SendVideoNote", err)
+		log.Println("b.sendPagah", "b.SendVideoNote", err)
+		return
 	}
+	// Set the video note file ID into pagahID and store it in a file.
+	pagahID = res.Result.VideoNote.FileID
+	go func() {
+		if err := os.WriteFile(pagahPath, []byte(pagahID), 0644); err != nil {
+			log.Println("b.sendPagah", "os.WriteFile", err)
+		}
+	}()
+}
+
+func (b *bot) remind() {
+	defer b.save()
+
+	// Reset the payers array.
+	b.Payers = []int64{}
+	// Send Zeb89's Pagah video note.
+	b.sendPagah()
 
 	// Send the reminder message.
 	msg := fmt.Sprintf(
@@ -477,4 +503,13 @@ func main() {
 		log.Println(dsp.PollOptions(true, dopts))
 		time.Sleep(5 * time.Second)
 	}
+}
+
+func init() {
+	id, err := os.ReadFile(pagahPath)
+	if err != nil {
+		log.Println("init", "os.ReadFile", err)
+		return
+	}
+	pagahID = string(id)
 }
