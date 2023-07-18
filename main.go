@@ -25,6 +25,7 @@ var (
 	commands = []echotron.BotCommand{
 		{Command: "/configura", Description: "Configura il bot."},
 		{Command: "/impostazioni", Description: "Mostra le impostazioni del bot."},
+		{Command: "/adesso", Description: "Richiedi il pagamento adesso."},
 		{Command: "/about", Description: "Per codice, problemi e suggerimenti."},
 	}
 
@@ -359,7 +360,7 @@ func (b *bot) handleMessage(update *echotron.Update) stateFn {
 	case strings.HasPrefix(msg, "/about"):
 		b.sendAbout()
 
-	case strings.HasPrefix(msg, "/test"):
+	case strings.HasPrefix(msg, "/adesso") && b.isAdmin(userID(update)):
 		b.remind()
 	}
 
