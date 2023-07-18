@@ -15,11 +15,13 @@ import (
 )
 
 type cachable struct {
-	ReminderID  int
-	Payers      []int64
-	PPNick      string
-	PPAmount    float64
-	ReminderDay int
+	PPNick        string
+	PPAmount      float64
+	IsYearly      bool
+	ReminderDay   int
+	ReminderMonth time.Month
+	Payers        []int64
+	ReminderID    int
 }
 
 var (

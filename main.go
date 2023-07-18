@@ -65,7 +65,7 @@ var (
 		ParseMode: echotron.MarkdownV2,
 	}
 
-	md2Esc = strings.NewReplacer(
+	escape = strings.NewReplacer(
 		"_", "\\_",
 		"[", "\\[",
 		"]", "\\]",
@@ -83,7 +83,7 @@ var (
 		"}", "\\}",
 		".", "\\.",
 		"!", "\\!",
-	)
+	).Replace
 
 	pagahID string
 )
@@ -91,9 +91,10 @@ var (
 type stateFn func(*echotron.Update) stateFn
 
 type bot struct {
-	chatID int64
-	state  map[int64]stateFn
-	admins map[int64]bool
+	chatID   int64
+	usrstate map[int64]stateFn
+	state    stateFn
+	admins   map[int64]bool
 	*cachable
 	echotron.API
 }
@@ -113,10 +114,10 @@ func (b bot) messagef(f string, a ...any) {
 
 func newBot(chatID int64) echotron.Bot {
 	b := &bot{
-		chatID: chatID,
-		API:    echotron.NewAPI(token),
-		state:  make(map[int64]stateFn),
-		admins: make(map[int64]bool),
+		chatID:   chatID,
+		API:      echotron.NewAPI(token),
+		usrstate: make(map[int64]stateFn),
+		admins:   make(map[int64]bool),
 	}
 	b.init()
 	go b.tick()
@@ -124,6 +125,8 @@ func newBot(chatID int64) echotron.Bot {
 }
 
 func (b *bot) init() {
+	b.state = b.handleMessage
+
 	// Load the cachable object.
 	cachable, err := Cachable(b.chatID)
 	if err != nil {
@@ -155,7 +158,67 @@ func (b *bot) init() {
 	}
 }
 
+func (b *bot) setAmount(update *echotron.Update) stateFn {
+	if update.Message == nil {
+		return b.setAmount
+	}
+
+	switch msg := update.Message.Text; {
+	case strings.HasPrefix(msg, "/annulla"):
+		b.messagef("Operazione annullata!")
+		return nil
+
+	default:
+		msg = strings.NewReplacer(",", ".", "€", "", "£", "", "$", "").Replace(msg)
+		a, err := strconv.ParseFloat(msg, 64)
+		if err != nil {
+			log.Println("setAmount", err)
+			b.messagef("Formato non valido, per favore riprova\\.")
+			return b.setAmount
+		}
+		b.PPAmount = a
+		go b.save()
+		if b.IsYearly {
+			b.messagef(
+				"Perfetto, ricorderò di pagare la somma di *%s€* ogni *%02d\\-%02d*\\!",
+				escape(fmt.Sprintf("%.2f", b.PPAmount)),
+				b.ReminderDay,
+				b.ReminderMonth,
+			)
+		} else {
+			b.messagef(
+				"Perfetto, ricorderò di pagare la somma di *%s€* ogni *%d* del mese\\!",
+				escape(fmt.Sprintf("%.2f", b.PPAmount)),
+				b.ReminderDay,
+			)
+		}
+		return nil
+	}
+}
+
+func (b *bot) setNick(update *echotron.Update) stateFn {
+	if update.Message == nil {
+		return b.setNick
+	}
+
+	switch msg := update.Message.Text; {
+	case strings.HasPrefix(msg, "/annulla"):
+		b.messagef("Operazione annullata!")
+		return nil
+
+	default:
+		b.PPNick = msg
+		go b.save()
+		b.messagef("Perfetto, ora mandami la *somma* da richiedere mensilmente\\.\nEsempio: 1\\.50")
+		return b.setAmount
+	}
+}
+
 func (b *bot) setDay(update *echotron.Update) stateFn {
+	if update.Message == nil {
+		return b.setDay
+	}
+
 	switch msg := update.Message.Text; {
 	case strings.HasPrefix(msg, "/annulla"):
 		b.messagef("Operazione annullata!")
@@ -174,60 +237,116 @@ func (b *bot) setDay(update *echotron.Update) stateFn {
 
 		b.ReminderDay = int(d)
 		go b.save()
-		b.messagef(
-			"Perfetto, ricorderò di pagare la somma di *%s€* ogni *%d* del mese\\!",
-			md2Esc.Replace(fmt.Sprintf("%.2f", b.PPAmount)),
-			b.ReminderDay,
-		)
-		return nil
+		b.messagef("Perfetto, ora dimmi il *nickname* di PayPal del ricevente\\.")
+		return b.setNick
 	}
 }
 
-func (b *bot) setAmount(update *echotron.Update) stateFn {
+func (b *bot) setMonthAndDay(update *echotron.Update) stateFn {
+	if update.Message == nil {
+		return b.setMonthAndDay
+	}
+
 	switch msg := update.Message.Text; {
 	case strings.HasPrefix(msg, "/annulla"):
 		b.messagef("Operazione annullata!")
 		return nil
 
 	default:
-		a, err := strconv.ParseFloat(msg, 64)
+		t, err := time.Parse("02-01", strings.ReplaceAll(msg, "/", "-"))
 		if err != nil {
-			log.Println("setAmount", err)
+			log.Println("b.setMonthAndDay", "time.Parse", err)
 			b.messagef("Formato non valido, per favore riprova\\.")
-			return b.setAmount
+			return b.setMonthAndDay
 		}
-		b.PPAmount = a
+		b.ReminderDay = t.Day()
+		b.ReminderMonth = t.Month()
+		go b.save()
+		b.messagef("Perfetto, ora dimmi il *nickname* di PayPal del ricevente\\.")
+		return b.setNick
+
+	}
+}
+
+func (b *bot) setMode(update *echotron.Update) stateFn {
+	if update.Message == nil {
+		return b.setMode
+	}
+
+	switch msg := update.Message.Text; {
+	case strings.HasPrefix(msg, "/annulla"):
+		b.messagef("Operazione annullata\\!")
+		return nil
+
+	case msg == "Mensile":
+		b.IsYearly = false
 		go b.save()
 		b.messagef("Perfetto, ora specifica il *giorno* in cui ricordare il pagamento \\(*compreso tra 1 e 28*\\)\\.")
 		return b.setDay
-	}
-}
 
-func (b *bot) setNick(update *echotron.Update) stateFn {
-	switch msg := update.Message.Text; {
-	case strings.HasPrefix(msg, "/annulla"):
-		b.messagef("Operazione annullata!")
-		return nil
-
-	default:
-		b.PPNick = msg
+	case msg == "Annuale":
+		b.IsYearly = true
 		go b.save()
-		b.messagef("Perfetto, ora mandami la *somma* da richiedere mensilmente\\.\nEsempio: 1\\.50")
-		return b.setAmount
+		b.messagef("Perfetto, ora specifica la data in cui mandare il reminder nel formato *DD\\-MM*\\.\nEsempio: \"15\\-07\" per indicare il 15 luglio\\.")
+		return b.setMonthAndDay
 	}
+	return b.setMode
 }
 
-func (b bot) handleMessage(update *echotron.Update) stateFn {
+func (b *bot) handleMessage(update *echotron.Update) stateFn {
+	if update.CallbackQuery != nil {
+		b.handleGenericCallback(update)
+		return b.handleMessage
+	}
+
 	switch msg := update.Message.Text; {
 	case strings.HasPrefix(msg, "/configura") && b.isAdmin(userID(update)):
-		b.messagef("Per prima cosa dimmi il *nickname* di *PayPal* del ricevente\\.\nPuoi mandare /annulla in qualsiasi momento per annullare l'operazione.")
-		return b.setNick
+		_, err := b.SendMessage(
+			"Per prima cosa dimmi se il pagamento è mensile o annuale\\.\nPuoi mandare /annulla in qualsiasi momento per annullare l'operazione\\.",
+			b.chatID,
+			&echotron.MessageOptions{
+				ParseMode:        echotron.MarkdownV2,
+				ReplyToMessageID: update.Message.ID,
+				ReplyMarkup: echotron.ReplyKeyboardMarkup{
+					OneTimeKeyboard:       true,
+					Selective:             true,
+					ResizeKeyboard:        true,
+					InputFieldPlaceholder: "Seleziona il piano...",
+					Keyboard: [][]echotron.KeyboardButton{
+						{{Text: "Mensile"}, {Text: "Annuale"}},
+					},
+				},
+			},
+		)
+		if err != nil {
+			log.Println("b.handleMessage", "b.SendMessage", err)
+		}
+		b.usrstate[userID(update)] = b.setMode
 
 	case strings.HasPrefix(msg, "/start") && b.isAdmin(userID(update)):
 		b.messagef("Ciao sono *Pagohtron*, il bot che ricorda i pagamenti mensili di gruppo\\!")
 		b.messagef("Prima di cominciare ho bisogno di sapere:\n\\- il *nickname* di PayPal del ricevente\n\\- la *somma di denaro* da chiedere\n\\- il *giorno* in cui devo ricordare a tutti il pagamento")
-		b.messagef("Per prima cosa dimmi il *nickname* di PayPal del ricevente\\.\nPuoi mandare /annulla in qualsiasi momento per annullare l'operazione\\.")
-		return b.setNick
+		_, err := b.SendMessage(
+			"Per prima cosa dimmi se il pagamento è mensile o annuale\\.\nPuoi mandare /annulla in qualsiasi momento per annullare l'operazione\\.",
+			b.chatID,
+			&echotron.MessageOptions{
+				ParseMode:        echotron.MarkdownV2,
+				ReplyToMessageID: update.Message.ID,
+				ReplyMarkup: echotron.ReplyKeyboardMarkup{
+					OneTimeKeyboard:       true,
+					Selective:             true,
+					ResizeKeyboard:        true,
+					InputFieldPlaceholder: "Seleziona il piano...",
+					Keyboard: [][]echotron.KeyboardButton{
+						{{Text: "Mensile"}, {Text: "Annuale"}},
+					},
+				},
+			},
+		)
+		if err != nil {
+			log.Println("b.handleMessage", "b.SendMessage", err)
+		}
+		b.usrstate[userID(update)] = b.setMode
 
 	case strings.HasPrefix(msg, "/impostazioni"):
 		b.messagef(
@@ -247,13 +366,13 @@ func (b bot) handleMessage(update *echotron.Update) stateFn {
 	return b.handleMessage
 }
 
-func (b *bot) handleCallback(update *echotron.Update) {
+func (b *bot) handleGenericCallback(update *echotron.Update) {
 	if update.CallbackQuery.Data != "confirm" {
 		b.AnswerCallbackQuery(update.CallbackQuery.ID, nil)
 		return
 	}
 
-	// If the user is among the payers tell him he has already paid.
+	// If the user is among the payers tell them they have already paid.
 	if isIn(userID(update), b.Payers) {
 		b.alreadyPaidAlert(update.CallbackQuery)
 		return
@@ -271,20 +390,14 @@ func (b *bot) handleCallback(update *echotron.Update) {
 }
 
 func (b *bot) Update(update *echotron.Update) {
-	if update.CallbackQuery != nil {
-		b.handleCallback(update)
-		return
-	}
-
-	state, ok := b.state[userID(update)]
-	if !ok {
-		state = b.handleMessage
-	}
-
-	if next := state(update); next != nil {
-		b.state[userID(update)] = next
+	if state, ok := b.usrstate[userID(update)]; ok {
+		if next := state(update); next != nil {
+			b.usrstate[userID(update)] = next
+		} else {
+			delete(b.usrstate, userID(update))
+		}
 	} else {
-		delete(b.state, userID(update))
+		b.state = b.state(update)
 	}
 }
 
@@ -337,7 +450,7 @@ func (b *bot) remind() {
 	// Send the reminder message.
 	msg := fmt.Sprintf(
 		"*Pagah\\!*\nManda %s€ a %s\\!\n",
-		md2Esc.Replace(fmt.Sprintf("%.2f", b.PPAmount)),
+		escape(fmt.Sprintf("%.2f", b.PPAmount)),
 		b.PPNick,
 	)
 	res, err := b.SendMessage(
@@ -407,7 +520,7 @@ Se hai suggerimenti o problemi contattaci su Telegram o apri una [issue](https:/
 
 func (b bot) tick() {
 	for t := range time.Tick(time.Hour) {
-		if t.Day() == b.ReminderDay && t.Hour() == 8 {
+		if t.Day() == b.ReminderDay && t.Hour() == 8 && (!b.IsYearly || t.Month() == b.ReminderMonth) {
 			b.remind()
 		}
 	}
