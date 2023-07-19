@@ -271,14 +271,25 @@ func (b *bot) setMonthAndDay(update *echotron.Update) stateFn {
 	}
 }
 
-func (b *bot) setMode(update *echotron.Update) stateFn {
+func (b *bot) setPlan(update *echotron.Update) stateFn {
 	if update.Message == nil {
-		return b.setMode
+		return b.setPlan
 	}
 
 	switch msg := update.Message.Text; {
 	case strings.HasPrefix(msg, "/annulla"):
-		b.messagef("Operazione annullata\\!")
+		_, err := b.SendMessage(
+			"Operazione annullata!",
+			b.chatID,
+			&echotron.MessageOptions{
+				ReplyMarkup: echotron.ReplyKeyboardRemove{
+					RemoveKeyboard: true,
+				},
+			},
+		)
+		if err != nil {
+			log.Println("b.setPlan", "b.SendMessage", err)
+		}
 		return nil
 
 	case msg == "Mensile":
@@ -295,7 +306,7 @@ func (b *bot) setMode(update *echotron.Update) stateFn {
 			},
 		)
 		if err != nil {
-			log.Println("b.setMode", "b.SendMessage", err)
+			log.Println("b.setPlan", "b.SendMessage", err)
 		}
 		return b.setDay
 
@@ -313,12 +324,12 @@ func (b *bot) setMode(update *echotron.Update) stateFn {
 			},
 		)
 		if err != nil {
-			log.Println("b.setMode", "b.SendMessage", err)
+			log.Println("b.setPlan", "b.SendMessage", err)
 		}
 		return b.setMonthAndDay
 	}
 
-	return b.setMode
+	return b.setPlan
 }
 
 func (b *bot) handleMessage(update *echotron.Update) stateFn {
@@ -349,7 +360,7 @@ func (b *bot) handleMessage(update *echotron.Update) stateFn {
 		if err != nil {
 			log.Println("b.handleMessage", "b.SendMessage", err)
 		}
-		b.usrstate[userID(update)] = b.setMode
+		b.usrstate[userID(update)] = b.setPlan
 
 	case strings.HasPrefix(msg, "/start") && b.isAdmin(userID(update)):
 		b.messagef("Ciao sono *Pagohtron*, il bot che ricorda i pagamenti mensili di gruppo\\!")
@@ -374,7 +385,7 @@ func (b *bot) handleMessage(update *echotron.Update) stateFn {
 		if err != nil {
 			log.Println("b.handleMessage", "b.SendMessage", err)
 		}
-		b.usrstate[userID(update)] = b.setMode
+		b.usrstate[userID(update)] = b.setPlan
 
 	case strings.HasPrefix(msg, "/impostazioni"):
 		b.messagef(
