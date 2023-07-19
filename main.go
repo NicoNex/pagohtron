@@ -24,6 +24,7 @@ var (
 	pagah []byte
 
 	commands = []echotron.BotCommand{
+		{Command: "/start", Description: "Inizializza e configura il bot per la chat."},
 		{Command: "/configura", Description: "Configura il bot."},
 		{Command: "/impostazioni", Description: "Mostra le impostazioni del bot."},
 		{Command: "/adesso", Description: "Richiedi il pagamento adesso."},
