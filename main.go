@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
 	"math/rand"
@@ -238,7 +239,7 @@ func (b *bot) setDay(update *echotron.Update) stateFn {
 
 		b.ReminderDay = int(d)
 		go b.save()
-		b.messagef("Perfetto, ora dimmi il *nickname* di PayPal del ricevente\\.")
+		b.messagef("Perfetto, ora dimmi il *nickname* di *PayPal* del ricevente\\.")
 		return b.setNick
 	}
 }
@@ -263,7 +264,7 @@ func (b *bot) setMonthAndDay(update *echotron.Update) stateFn {
 		b.ReminderDay = t.Day()
 		b.ReminderMonth = t.Month()
 		go b.save()
-		b.messagef("Perfetto, ora dimmi il *nickname* di PayPal del ricevente\\.")
+		b.messagef("Perfetto, ora dimmi il *nickname* di *PayPal* del ricevente\\.")
 		return b.setNick
 
 	}
@@ -282,15 +283,40 @@ func (b *bot) setMode(update *echotron.Update) stateFn {
 	case msg == "Mensile":
 		b.IsYearly = false
 		go b.save()
-		b.messagef("Perfetto, ora specifica il *giorno* in cui ricordare il pagamento \\(*compreso tra 1 e 28*\\)\\.")
+		_, err := b.SendMessage(
+			"Perfetto, ora specifica il *giorno* in cui ricordare il pagamento \\(*compreso tra 1 e 28*\\)\\.",
+			b.chatID,
+			&echotron.MessageOptions{
+				ParseMode: echotron.MarkdownV2,
+				ReplyMarkup: echotron.ReplyKeyboardRemove{
+					RemoveKeyboard: true,
+				},
+			},
+		)
+		if err != nil {
+			log.Println("b.setMode", "b.SendMessage", err)
+		}
 		return b.setDay
 
 	case msg == "Annuale":
 		b.IsYearly = true
 		go b.save()
-		b.messagef("Perfetto, ora specifica la data in cui mandare il reminder nel formato *DD\\-MM*\\.\nEsempio: \"15\\-07\" per indicare il 15 luglio\\.")
+		_, err := b.SendMessage(
+			"Perfetto, ora specifica la data in cui mandare il reminder nel formato *DD\\-MM*\\.\nEsempio: \"15\\-07\" per indicare il 15 luglio\\.",
+			b.chatID,
+			&echotron.MessageOptions{
+				ParseMode: echotron.MarkdownV2,
+				ReplyMarkup: echotron.ReplyKeyboardRemove{
+					RemoveKeyboard: true,
+				},
+			},
+		)
+		if err != nil {
+			log.Println("b.setMode", "b.SendMessage", err)
+		}
 		return b.setMonthAndDay
 	}
+
 	return b.setMode
 }
 
@@ -326,7 +352,7 @@ func (b *bot) handleMessage(update *echotron.Update) stateFn {
 
 	case strings.HasPrefix(msg, "/start") && b.isAdmin(userID(update)):
 		b.messagef("Ciao sono *Pagohtron*, il bot che ricorda i pagamenti mensili di gruppo\\!")
-		b.messagef("Prima di cominciare ho bisogno di sapere:\n\\- il *nickname* di PayPal del ricevente\n\\- la *somma di denaro* da chiedere\n\\- il *giorno* in cui devo ricordare a tutti il pagamento")
+		b.messagef("Prima di cominciare ho bisogno di sapere:\n\\- il *piano* del pagamento \\(mensile o annuale\\)\n\\- il *nickname* di PayPal del ricevente\n\\- la *somma di denaro* da chiedere\n\\- il *giorno* in cui devo ricordare a tutti il pagamento")
 		_, err := b.SendMessage(
 			"Per prima cosa dimmi se il pagamento è mensile o annuale\\.\nPuoi mandare /annulla in qualsiasi momento per annullare l'operazione\\.",
 			b.chatID,
@@ -588,6 +614,9 @@ func userID(u *echotron.Update) int64 {
 
 func main() {
 	rand.Seed(time.Now().UnixMilli())
+
+	flag.StringVar(&token, "t", token, "The Telegram token of the bot.")
+	flag.Parse()
 
 	// Intercept SIGINT, SIGTERM, SIGSEGV and SIGKILL and gracefully close the DB.
 	sigChan := make(chan os.Signal, 1)

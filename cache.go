@@ -112,11 +112,7 @@ func btoi(b []byte) int64 {
 }
 
 func bytesToCachable(b []byte) (c cachable) {
-	var (
-		buf = bytes.NewBuffer(b)
-		dec = gob.NewDecoder(buf)
-	)
-	dec.Decode(&c)
+	gob.NewDecoder(bytes.NewBuffer(b)).Decode(&c)
 	return
 }
 
