@@ -64,6 +64,21 @@ var (
 		"il tributo",
 	}
 
+	monthMap = map[time.Month]string{
+		time.January:   "gennaio",
+		time.February:  "febbraio",
+		time.March:     "marzo",
+		time.April:     "aprile",
+		time.May:       "maggio",
+		time.June:      "giugno",
+		time.July:      "luglio",
+		time.August:    "agosto",
+		time.September: "settembre",
+		time.October:   "ottobre",
+		time.November:  "novembre",
+		time.December:  "dicembre",
+	}
+
 	md = &echotron.MessageOptions{
 		ParseMode: echotron.MarkdownV2,
 	}
@@ -388,12 +403,7 @@ func (b *bot) handleMessage(update *echotron.Update) stateFn {
 		b.usrstate[userID(update)] = b.setPlan
 
 	case strings.HasPrefix(msg, "/impostazioni"):
-		b.messagef(
-			"Nickname PayPal ricevente: *%s*\nSomma da versare: *%.2f€*\nGiorno del reminder: *%d di ogni mese*",
-			b.PPNick,
-			b.PPAmount,
-			b.ReminderDay,
-		)
+		b.sendSettings()
 
 	case strings.HasPrefix(msg, "/about"):
 		b.sendAbout()
@@ -443,6 +453,24 @@ func (b *bot) Update(update *echotron.Update) {
 func (b bot) save() {
 	if err := b.Put(b.chatID); err != nil {
 		log.Println("b.save", err)
+	}
+}
+
+func (b bot) sendSettings() {
+	if b.IsYearly {
+		b.messagef(
+			"Nickname PayPal ricevente: *%s*\nSomma da versare: *%s€*\nData del reminder: *%s*",
+			escape(b.PPNick),
+			escape(fmt.Sprintf("%.2f", b.PPAmount)),
+			escape(fmt.Sprintf("%02d %s", b.ReminderDay, monthMap[b.ReminderMonth])),
+		)
+	} else {
+		b.messagef(
+			"Nickname PayPal ricevente: *%s*\nSomma da versare: *%s€*\nGiorno del reminder: *%d di ogni mese*",
+			escape(b.PPNick),
+			escape(fmt.Sprintf("%.2f", b.PPAmount)),
+			b.ReminderDay,
+		)
 	}
 }
 
