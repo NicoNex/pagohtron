@@ -91,6 +91,10 @@ func fold(fn func(key int64, val cachable) error) (err error) {
 	return
 }
 
+func del(id int64) error {
+	return cc.Delete(itob(id))
+}
+
 func keys() []int64 {
 	var keys []int64
 

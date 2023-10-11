@@ -23,6 +23,8 @@ var (
 	//go:embed assets/pagah.mp4
 	pagah []byte
 
+	dsp *echotron.Dispatcher
+
 	commands = []echotron.BotCommand{
 		{Command: "/start", Description: "Inizializza e configura il bot per la chat."},
 		{Command: "/configura", Description: "Configura il bot."},
@@ -137,12 +139,16 @@ func newBot(chatID int64) echotron.Bot {
 		usrstate: make(map[int64]stateFn),
 		admins:   make(map[int64]bool),
 	}
-	b.init()
+	if err := b.init(); err != nil {
+		b.SendMessage("Non riesco a recuperare le informazioni relative a questa chat.\nPer favore riconfigura il bot con il comando /start.", chatID, nil)
+		del(chatID)
+	}
 	go b.tick()
+
 	return b
 }
 
-func (b *bot) init() {
+func (b *bot) init() error {
 	b.state = b.handleMessage
 
 	// Load the cachable object.
@@ -155,7 +161,8 @@ func (b *bot) init() {
 	// Set isGroup field.
 	res, err := b.GetChat(b.chatID)
 	if err != nil {
-		log.Fatal("b.init", "b.GetChat", err)
+		log.Println("b.init", "b.GetChat", err)
+		return err
 	}
 	chatType := res.Result.Type
 
@@ -163,7 +170,8 @@ func (b *bot) init() {
 	if chatType == "group" || chatType == "supergroup" {
 		res, err := b.GetChatAdministrators(b.chatID)
 		if err != nil {
-			log.Fatal("b.init", "b.GetChatAdministrators", err)
+			log.Println("b.init", "b.GetChatAdministrators", err)
+			return err
 		}
 
 		for _, chatMember := range res.Result {
@@ -174,6 +182,7 @@ func (b *bot) init() {
 	} else {
 		b.admins[b.chatID] = true
 	}
+	return nil
 }
 
 func (b *bot) setAmount(update *echotron.Update) stateFn {
@@ -660,7 +669,15 @@ func main() {
 
 	// Intercept SIGINT, SIGTERM, SIGSEGV and SIGKILL and gracefully close the DB.
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGSEGV, syscall.SIGKILL)
+	signal.Notify(
+		sigChan,
+		syscall.SIGINT,
+		syscall.SIGTERM,
+		syscall.SIGABRT,
+		syscall.SIGSEGV,
+		syscall.SIGKILL,
+		syscall.SIGQUIT,
+	)
 	go func() {
 		<-sigChan
 		cc.Close()
@@ -677,7 +694,7 @@ func main() {
 		},
 		Timeout: 120,
 	}
-	dsp := echotron.NewDispatcher(token, newBot)
+	dsp = echotron.NewDispatcher(token, newBot)
 	for _, k := range keys() {
 		log.Printf("starting dispatcher session with ID: %d", k)
 		dsp.AddSession(k)
